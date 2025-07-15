@@ -24,12 +24,37 @@ public class AuthController(UserManager<AppUser> userManager, SignInManager<AppU
         
         var result = await userManager.CreateAsync(user, model.Password);
 
-        if (result.Succeeded)
+        if (!result.Succeeded)
         {
-            return Ok("Kullanıcını oluşturdum");
+            return BadRequest(result.Errors);
         }
         
-        return BadRequest(result.Errors);
+        // burada token oluşturup
+        // e-posta ile üyelik onay token'ı göndereceğim
+        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+        var confirmationLink = Url.Action(nameof(ConfirmEmail), "Auth", new { userId = user.Id, token = token }, protocol: HttpContext.Request.Scheme);
+        
+        Console.WriteLine($"\n onay linki: {confirmationLink} \n");
+        
+        return Ok("Kullanıcını oluşturdum");
+    }
+
+    [HttpGet("[action]")]
+    public async Task<IActionResult> ConfirmEmail(string userId, string token)
+    {
+        var user = await userManager.FindByIdAsync(userId);
+        if (user == null)
+        {
+            return NotFound();
+        }
+        
+        var result = await userManager.ConfirmEmailAsync(user, token);
+        if (!result.Succeeded)
+        {
+            return BadRequest(result.Errors);
+        }
+        
+        return Ok("Onaylandı");
     }
 
     [HttpPost("[action]")]
@@ -51,20 +76,20 @@ public class AuthController(UserManager<AppUser> userManager, SignInManager<AppU
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Email),
             new Claim("uid", user.Id),
-            new Claim("firstname", user.FirstName),
-            new Claim("lastname", user.LastName)
+            new Claim("firstName", user.FirstName),
+            new Claim("lastName", user.LastName)
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-                issuer: configuration["Jwt:Issuer"],
-                audience: configuration["Jwt:Audience"],
-                claims: claims,
-                expires: DateTime.Now.AddMinutes(30),
-                signingCredentials: creds
-            );
+            issuer: configuration["Jwt:Issuer"],
+            audience: configuration["Jwt:Audience"],
+            claims: claims,
+            expires: DateTime.Now.AddMinutes(30),
+            signingCredentials: creds
+        );
         
         return Ok(new
         {
@@ -77,8 +102,7 @@ public class AuthController(UserManager<AppUser> userManager, SignInManager<AppU
     [HttpGet("me")]
     public IActionResult GetLoggedInUser()
     {
-        
-        return Ok($"{User.FindFirst("firstname")?.Value} {User.FindFirst("lastname")?.Value}");
+        return Ok($"{User.FindFirst("firstName")?.Value} {User.FindFirst("lastName")?.Value}");
     }
 }
 
